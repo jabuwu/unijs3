@@ -100,6 +100,22 @@ impl Value {
     }
 }
 
+impl std::fmt::Display for Value {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        // TODO: nicer output for array, object
+        match self {
+            Self::Undefined => write!(f, "undefined"),
+            Self::Null => write!(f, "null"),
+            Self::Boolean(value) => write!(f, "{}", value),
+            Self::Number(value) => write!(f, "{}", value),
+            Self::String(value) => write!(f, "{}", &value),
+            Self::Array(_) => write!(f, "[array]"),
+            Self::Object(_) => write!(f, "[object]"),
+            Self::Function(_) => write!(f, "[function]"),
+        }
+    }
+}
+
 impl From<bool> for Value {
     fn from(value: bool) -> Self {
         Value::Boolean(value)
@@ -145,6 +161,74 @@ impl From<Object> for Value {
 impl From<Function> for Value {
     fn from(value: Function) -> Self {
         Value::Function(value)
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl From<v8::Local<'_, v8::Value>> for Value {
+    fn from(value: v8::Local<v8::Value>) -> Self {
+        let scope = crate::v8::scope();
+        if value.is_undefined() {
+            Self::Undefined
+        } else if value.is_null() {
+            Self::Null
+        } else if value.is_boolean() {
+            Self::Boolean(value.boolean_value(scope))
+        } else if value.is_number() {
+            Self::Number(value.number_value(scope).unwrap())
+        } else if value.is_string() {
+            // TODO: this impl kinda sucks?
+            let string: v8::Local<v8::String> = value.try_into().unwrap();
+            let mut buffer = [0; 1024];
+            let mut nchars = 0;
+            string.write_utf8(
+                scope,
+                &mut buffer,
+                Some(&mut nchars),
+                v8::WriteOptions::default(),
+            );
+            let string = std::str::from_utf8(&buffer).unwrap().to_owned();
+            Self::String(string.chars().take(nchars).collect())
+        } else if value.is_function() {
+            Self::Function(Function::from(
+                v8::Local::<v8::Function>::try_from(value).unwrap(),
+            ))
+        } else if value.is_array() {
+            // TODO: remove unwrap?
+            Self::Array(Array::from(
+                v8::Local::<v8::Array>::try_from(value).unwrap(),
+            ))
+        } else if value.is_object() {
+            // TODO: remove unwrap?
+            Self::Object(Object::from(
+                v8::Local::<v8::Object>::try_from(value).unwrap(),
+            ))
+        } else {
+            todo!("{:?}", value.to_rust_string_lossy(scope))
+        }
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl From<Value> for v8::Local<'_, v8::Value> {
+    fn from(value: Value) -> Self {
+        let scope = crate::v8::scope();
+        match value {
+            Value::Undefined => v8::undefined(scope).into(),
+            Value::Null => v8::null(scope).into(),
+            Value::Boolean(value) => v8::Boolean::new(scope, value).into(),
+            Value::Number(value) => v8::Number::new(scope, value).into(),
+            Value::String(value) => v8::String::new(scope, value.as_str()).unwrap().into(),
+            Value::Array(value) => {
+                v8::Local::<v8::Value>::from(v8::Local::<v8::Array>::from(value))
+            }
+            Value::Object(value) => {
+                v8::Local::<v8::Value>::from(v8::Local::<v8::Object>::from(value))
+            }
+            Value::Function(value) => {
+                v8::Local::<v8::Value>::from(v8::Local::<v8::Function>::from(value))
+            }
+        }
     }
 }
 
@@ -195,7 +279,21 @@ mod test {
     #[cfg(target_arch = "wasm32")]
     use wasm_bindgen_test::wasm_bindgen_test as test;
 
-    use crate::{eval, Value};
+    use crate::{eval, Array, Object, Value};
+
+    #[test]
+    fn display() {
+        assert_eq!(Value::Undefined.to_string(), "undefined");
+        assert_eq!(Value::Null.to_string(), "null");
+        assert_eq!(Value::Boolean(true).to_string(), "true");
+        assert_eq!(Value::Boolean(false).to_string(), "false");
+        assert_eq!(Value::Number(3.).to_string(), "3");
+        assert_eq!(Value::Number(3.3).to_string(), "3.3");
+        assert_eq!(Value::String("hello".to_owned()).to_string(), "hello");
+        assert_eq!(Value::Array(Array::new()).to_string(), "[array]");
+        assert_eq!(Value::Object(Object::new()).to_string(), "[object]");
+        // TODO: Function
+    }
 
     #[test]
     fn convert_from() {
@@ -205,28 +303,32 @@ mod test {
         assert_eq!(eval("false"), Value::Boolean(false));
         assert_eq!(eval("1 + 2"), Value::Number(3.));
         assert_eq!(eval("'hello'"), Value::String("hello".to_owned()));
+
+        let array = eval("[1, 2, 3]").into_array().unwrap();
+        assert_eq!(array.length(), 3);
         // TODO: test Array, Object, Function
     }
 
-    #[cfg(target_arch = "wasm32")]
     #[test]
-    fn convert_into_web() {
-        use wasm_bindgen::JsValue;
-        assert_eq!(JsValue::from(Value::Undefined), JsValue::undefined());
-        assert_eq!(JsValue::from(Value::Null), JsValue::null());
-        assert_eq!(
-            JsValue::from(Value::Boolean(true)),
-            JsValue::from_bool(true)
-        );
-        assert_eq!(
-            JsValue::from(Value::Boolean(false)),
-            JsValue::from_bool(false)
-        );
-        assert_eq!(JsValue::from(Value::Number(3.)), JsValue::from_f64(3.));
-        assert_eq!(
-            JsValue::from(Value::String("hello".to_owned())),
-            JsValue::from_str("hello")
-        );
-        // TODO: test Array, Object, Function
+    fn convert_into() {
+        fn check_equal(value: Value, js: &str) {
+            let check = eval(format!(
+                "function check(value) {{ return value === {}; }}; check",
+                js
+            ))
+            .into_function()
+            .unwrap();
+            if !check.call([value.clone()]).into_boolean().unwrap() {
+                panic!("Conversion failed: {} != {}", value, js);
+            }
+        }
+        check_equal(Value::Undefined, "undefined");
+        check_equal(Value::Null, "null");
+        check_equal(Value::Boolean(true), "true");
+        check_equal(Value::Boolean(false), "false");
+        check_equal(Value::Number(3.), "3");
+        check_equal(Value::Number(3.3), "3.3");
+        check_equal(Value::String("hello".to_owned()), "\"hello\"");
+        // TODO: Array, Object, Function
     }
 }
