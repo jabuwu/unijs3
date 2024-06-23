@@ -10,10 +10,14 @@ pub struct Array {
 
 impl Array {
     pub fn new() -> Self {
+        Self::new_with_length(0)
+    }
+
+    pub fn new_with_length(length: u32) -> Self {
         #[cfg(not(target_arch = "wasm32"))]
         {
             let scope = crate::v8::scope();
-            let array = v8::Array::new(scope, 0);
+            let array = v8::Array::new(scope, length as i32);
             Self {
                 array: v8::Global::new(scope, array),
             }
@@ -21,7 +25,7 @@ impl Array {
         #[cfg(target_arch = "wasm32")]
         {
             Self {
-                array: js_sys::Array::new(),
+                array: js_sys::Array::new_with_length(length),
             }
         }
     }
