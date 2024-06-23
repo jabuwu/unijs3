@@ -28,7 +28,7 @@ fn global_object() -> wasm_bindgen::JsValue {
     if let Some(window) = web_sys::window() {
         wasm_bindgen::JsValue::from(window)
     } else if let Value::Object(global) = eval("global") {
-        wasm_bindgen::JsValue::from(global)
+        wasm_bindgen::JsValue::from(js_sys::Object::from(global))
     } else {
         panic!()
     }

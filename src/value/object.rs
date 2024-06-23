@@ -86,11 +86,7 @@ impl Object {
         {
             let key = wasm_bindgen::JsValue::from_str(key);
             // TODO: don't unwrap
-            js_sys::Reflect::delete_property(
-                &self.object,
-                &key,
-            )
-            .unwrap();
+            js_sys::Reflect::delete_property(&self.object, &key).unwrap();
         }
     }
 
@@ -140,7 +136,8 @@ impl Object {
         }
         #[cfg(target_arch = "wasm32")]
         {
-            todo!()
+            let prototype = js_sys::Object::get_prototype_of(&self.object);
+            Value::from(Object::from(prototype))
         }
     }
 
@@ -154,7 +151,32 @@ impl Object {
         }
         #[cfg(target_arch = "wasm32")]
         {
-            todo!()
+            let prototype = js_sys::Object::from(wasm_bindgen::JsValue::from(prototype.into()));
+            js_sys::Object::set_prototype_of(&self.object, &prototype.into());
+        }
+    }
+
+    // TODO: accept PropertyDescriptor instead of value
+    pub fn define_property(&self, key: &str, value: impl Into<Value>) {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let scope = crate::v8::scope();
+            let object = v8::Local::new(scope, self.object.clone());
+            let key = v8::String::new(scope, key).unwrap();
+            let value = v8::Local::<v8::Value>::from(value.into());
+            let property_descriptor = v8::PropertyDescriptor::new_from_value(value);
+            object.define_property(scope, key.into(), &property_descriptor);
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            let key = wasm_bindgen::JsValue::from(Value::from(key));
+            let attributes = Object::new();
+            attributes.set("value", value);
+            js_sys::Reflect::define_property(
+                &self.object,
+                &key,
+                &js_sys::Object::from(attributes),
+            ).unwrap();
         }
     }
 }
@@ -167,7 +189,7 @@ impl AsObject for Object {
 
 impl std::fmt::Debug for Object {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Object")
+        write!(f, "{}", self)
     }
 }
 
@@ -216,9 +238,9 @@ impl From<js_sys::Object> for Object {
 }
 
 #[cfg(target_arch = "wasm32")]
-impl From<Object> for wasm_bindgen::JsValue {
+impl From<Object> for js_sys::Object {
     fn from(object: Object) -> Self {
-        wasm_bindgen::JsValue::from(object.object)
+        js_sys::Object::from(object.object)
     }
 }
 
@@ -227,7 +249,7 @@ mod test {
     #[cfg(target_arch = "wasm32")]
     use wasm_bindgen_test::wasm_bindgen_test as test;
 
-    use crate::{Array, Function, Object, Value};
+    use crate::{Array, AsObject, Function, Object, Value};
 
     #[test]
     fn set_get() {
@@ -255,5 +277,34 @@ mod test {
         object.set("arr", Array::new());
         object.set("fn", Function::new(|_| {}));
         assert_eq!(object.keys(), vec!["foo", "pi", "obj", "arr", "fn"]);
+    }
+
+    #[test]
+    fn prototype() {
+        let class = Function::new(|_| {});
+        class.as_object().define_property("name", "class");
+
+        let instance = class.new_instance([]);
+        assert_eq!(
+            instance
+                .prototype()
+                .into_object()
+                .unwrap()
+                .get("constructor"),
+            class.into()
+        );
+
+        let class2 = Function::new(|_| {});
+        class2.as_object().define_property("name", "class2");
+
+        instance.set_prototype(class2.clone().as_object().get("prototype"));
+        assert_eq!(
+            instance
+                .prototype()
+                .into_object()
+                .unwrap()
+                .get("constructor"),
+            class2.into()
+        );
     }
 }

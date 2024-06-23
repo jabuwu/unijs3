@@ -321,9 +321,13 @@ impl From<Value> for wasm_bindgen::JsValue {
             Value::Boolean(value) => wasm_bindgen::JsValue::from_bool(value),
             Value::Number(value) => wasm_bindgen::JsValue::from_f64(value),
             Value::String(value) => wasm_bindgen::JsValue::from_str(&value),
-            Value::Array(value) => wasm_bindgen::JsValue::from(value),
-            Value::Object(value) => wasm_bindgen::JsValue::from(value),
-            Value::Function(value) => wasm_bindgen::JsValue::from(value),
+            Value::Array(value) => {
+                let array: js_sys::Array = From::<Array>::from(value);
+                let array: wasm_bindgen::JsValue = array.into();
+                array
+            }
+            Value::Object(value) => wasm_bindgen::JsValue::from(js_sys::Object::from(value)),
+            Value::Function(value) => wasm_bindgen::JsValue::from(js_sys::Function::from(value)),
         }
     }
 }
@@ -347,14 +351,11 @@ mod test {
             format!("{:?}", Value::String("hello".to_owned())),
             "String(\"hello\")"
         );
-        assert_eq!(format!("{:?}", Value::Array(Array::new())), "Array(Array)");
-        assert_eq!(
-            format!("{:?}", Value::Object(Object::new())),
-            "Object(Object)"
-        );
+        assert_eq!(format!("{:?}", Value::Array(Array::new())), "Array([])");
+        assert_eq!(format!("{:?}", Value::Object(Object::new())), "Object({})");
         assert_eq!(
             format!("{:?}", Value::Function(Function::new(|_| {}))),
-            "Function(Function)"
+            "Function(ƒ())"
         );
     }
 

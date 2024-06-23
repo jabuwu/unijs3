@@ -199,7 +199,7 @@ impl AsObject for Function {
 
 impl std::fmt::Debug for Function {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Function")
+        write!(f, "{}", self)
     }
 }
 
@@ -240,9 +240,9 @@ impl From<js_sys::Function> for Function {
 }
 
 #[cfg(target_arch = "wasm32")]
-impl From<Function> for wasm_bindgen::JsValue {
+impl From<Function> for js_sys::Function {
     fn from(function: Function) -> Self {
-        wasm_bindgen::JsValue::from(function.function)
+        js_sys::Function::from(function.function)
     }
 }
 

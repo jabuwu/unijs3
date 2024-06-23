@@ -107,7 +107,7 @@ impl AsObject for Array {
 
 impl std::fmt::Debug for Array {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Array")
+        write!(f, "{}", self)
     }
 }
 
@@ -160,9 +160,9 @@ impl From<js_sys::Array> for Array {
 }
 
 #[cfg(target_arch = "wasm32")]
-impl From<Array> for wasm_bindgen::JsValue {
+impl From<Array> for js_sys::Array {
     fn from(array: Array) -> Self {
-        wasm_bindgen::JsValue::from(array.array)
+        js_sys::Array::from(&array.array)
     }
 }
 
