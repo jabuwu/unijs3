@@ -57,9 +57,9 @@ impl Object {
         {
             let scope = crate::v8::scope();
             let object = v8::Local::new(scope, self.object.clone());
-            let name = v8::String::new(scope, key).unwrap();
+            let key = v8::String::new(scope, key).unwrap();
             let value = v8::Local::<v8::Value>::from(value.into());
-            object.set(scope, name.into(), value).unwrap();
+            object.set(scope, key.into(), value).unwrap();
         }
         #[cfg(target_arch = "wasm32")]
         {
@@ -69,6 +69,26 @@ impl Object {
                 &self.object,
                 &key,
                 &wasm_bindgen::JsValue::from(value.into()),
+            )
+            .unwrap();
+        }
+    }
+
+    pub fn delete(&self, key: &str) {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let scope = crate::v8::scope();
+            let object = v8::Local::new(scope, self.object.clone());
+            let key = v8::String::new(scope, key).unwrap();
+            object.delete(scope, key.into());
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            let key = wasm_bindgen::JsValue::from_str(key);
+            // TODO: don't unwrap
+            js_sys::Reflect::delete_property(
+                &self.object,
+                &key,
             )
             .unwrap();
         }
@@ -104,6 +124,23 @@ impl Object {
                 }
             }
             keys
+        }
+    }
+
+    pub fn prototype(&self) -> Value {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let scope = crate::v8::scope();
+            let object = v8::Local::new(scope, self.object.clone());
+            if let Some(prototype) = object.get_prototype(scope) {
+                Value::from(prototype)
+            } else {
+                Value::Undefined
+            }
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            todo!()
         }
     }
 }
@@ -176,13 +213,23 @@ mod test {
     #[cfg(target_arch = "wasm32")]
     use wasm_bindgen_test::wasm_bindgen_test as test;
 
-    use crate::{Array, Function, Object};
+    use crate::{Array, Function, Object, Value};
 
     #[test]
     fn set_get() {
         let object = Object::new();
         object.set("foo", "bar");
         assert_eq!(object.get("foo").into_string().unwrap(), "bar");
+    }
+
+    #[test]
+    fn delete() {
+        let object = Object::new();
+        object.set("foo", "bar");
+        object.set("foo", Value::Undefined);
+        assert_eq!(object.keys(), vec!["foo"]);
+        object.delete("foo");
+        assert_eq!(object.keys(), Vec::<String>::new());
     }
 
     #[test]

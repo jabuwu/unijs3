@@ -3,6 +3,7 @@ mod value;
 pub use value::*;
 
 pub mod native;
+pub mod json;
 
 #[cfg(not(target_arch = "wasm32"))]
 mod v8;

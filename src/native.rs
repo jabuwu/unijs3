@@ -3,7 +3,7 @@ use std::{any::Any, mem::{forget, transmute, MaybeUninit}};
 use crate::{eval, global_get, global_set, Function, Object, Value};
 
 #[derive(Clone, Copy)]
-pub struct FatPointer {
+struct FatPointer {
     data_pointer: *const u8,
     vtable_pointer: *const u8,
 }
