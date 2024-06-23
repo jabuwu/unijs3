@@ -1,11 +1,11 @@
 mod value;
-mod gc;
 
 pub use value::*;
-pub use gc::*;
+
+pub mod native;
 
 #[cfg(not(target_arch = "wasm32"))]
-pub mod v8;
+mod v8;
 
 // TODO: remove unwraps and return error
 pub fn eval(source: impl AsRef<str>) -> Value {
@@ -22,6 +22,17 @@ pub fn eval(source: impl AsRef<str>) -> Value {
     }
 }
 
+#[cfg(target_arch = "wasm32")]
+fn global_object() -> wasm_bindgen::JsValue {
+    if let Some(window) = web_sys::window() {
+        wasm_bindgen::JsValue::from(window)
+    } else if let Value::Object(global) = eval("global") {
+        wasm_bindgen::JsValue::from(global)
+    } else {
+        panic!()
+    }
+}
+
 pub fn global_set(name: impl AsRef<str>, value: impl Into<Value>) {
     #[cfg(not(target_arch = "wasm32"))]
     {
@@ -34,10 +45,9 @@ pub fn global_set(name: impl AsRef<str>, value: impl Into<Value>) {
     }
     #[cfg(target_arch = "wasm32")]
     {
-        use web_sys::window;
-        let window = window().unwrap();
+        let global = global_object();
         js_sys::Reflect::set(
-            &window.into(),
+            &global,
             &name.as_ref().into(),
             &wasm_bindgen::JsValue::from(value.into()),
         )
@@ -61,8 +71,21 @@ pub fn global_get(name: impl AsRef<str>) -> Value {
     }
     #[cfg(target_arch = "wasm32")]
     {
-        use web_sys::window;
-        let window = window().unwrap();
-        Value::from(js_sys::Reflect::get(&window.into(), &name.as_ref().into()).unwrap())
+        let global = global_object();
+        Value::from(js_sys::Reflect::get(&global, &name.as_ref().into()).unwrap())
+    }
+}
+
+#[cfg(test)]
+mod test {
+    #[cfg(target_arch = "wasm32")]
+    use wasm_bindgen_test::wasm_bindgen_test as test;
+
+    use crate::{global_get, global_set, Value};
+
+    #[test]
+    fn global_set_get() {
+        global_set("test", Value::Number(636.));
+        assert_eq!(global_get("test"), Value::Number(636.));
     }
 }

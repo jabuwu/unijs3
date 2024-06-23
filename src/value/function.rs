@@ -1,4 +1,4 @@
-use crate::{AsObject, Object, Value};
+use crate::{native, AsObject, Object, Value};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Function {
@@ -9,20 +9,46 @@ pub struct Function {
 }
 
 impl Function {
-    pub fn new(body: fn(Args) -> Value) -> Self {
+    pub fn new<F: Fn(Args) -> Value + 'static>(body: F) -> Self {
+        Self::new_with_data(Value::Undefined, body)
+    }
+
+    pub fn new_with_data<F: Fn(Args) -> Value + 'static>(data: impl Into<Value>, body: F) -> Self {
+        let body_box: Box<dyn Fn(Args) -> Value> = Box::new(body);
+        let closure = native::wrap(body_box);
+        let data_arr = Value::from(vec![closure.into(), data.into()]);
+        let function = Self::new_static(data_arr, |mut args: Args| {
+            let data_arr = args.data().into_array().unwrap();
+            let closure = data_arr.get(0).into_object().unwrap();
+            let data = data_arr.get(1);
+            let closure = native::get::<Box<dyn Fn(Args) -> Value>>(&closure).unwrap();
+            args.data = data;
+            (closure)(args)
+        });
+        function
+    }
+
+    pub fn new_static(data: impl Into<Value>, body: fn(Args) -> Value) -> Self {
         #[cfg(not(target_arch = "wasm32"))]
         {
             let scope = crate::v8::scope();
-            let body_ptr = v8::Number::new(scope, body as usize as f64);
+            let data_arr = crate::Array::new();
+            data_arr.push(body as usize as f64);
+            data_arr.push(data);
             let function = v8::Function::builder(
                 |v8_scope: &mut v8::HandleScope<'_>,
                  v8_args: v8::FunctionCallbackArguments<'_>,
                  mut v8_ret: v8::ReturnValue<'_>| {
                     crate::v8::push_scope(v8_scope);
+                    let data_arr = Value::from(v8_args.data()).into_array().unwrap();
+                    let body_ptr = data_arr.get(0).into_number().unwrap();
+                    let f: fn(Args) -> Value = unsafe { std::mem::transmute(body_ptr as usize) };
+                    let data = data_arr.get(1);
                     let this = Value::from(Object::from(v8_args.this()));
-                    let mut args = Args { this, args: vec![] };
-                    let f: fn(Args) -> Value = unsafe {
-                        std::mem::transmute(v8_args.data().number_value(v8_scope).unwrap() as usize)
+                    let mut args = Args {
+                        this,
+                        data,
+                        args: vec![],
                     };
                     for i in 0..v8_args.length() {
                         args.args.push(Value::from(v8_args.get(i)));
@@ -32,7 +58,9 @@ impl Function {
                     v8_ret.set(value);
                 },
             )
-            .data(body_ptr.into())
+            .data(v8::Local::<v8::Value>::from(v8::Local::<v8::Array>::from(
+                data_arr,
+            )))
             .build(scope)
             .unwrap();
             Self {
@@ -41,25 +69,47 @@ impl Function {
         }
         #[cfg(target_arch = "wasm32")]
         {
-            use wasm_bindgen::{closure::Closure, JsValue};
-            let bindgen_closure =
-                Closure::<dyn Fn(JsValue, JsValue) -> JsValue>::new(move |js_this: JsValue, js_args: JsValue| {
-                    let this = Value::from(js_this);
-                    let mut args = Args { this, args: vec![] };
-                    let js_args_array: js_sys::Array = js_args.into();
-                    for i in 0..js_args_array.length() {
-                        args.args.push(Value::from(js_args_array.get(i)));
-                    }
-                    let ret = body(args);
-                    JsValue::from(ret)
-                });
-            let closure = Value::from(JsValue::from(bindgen_closure.as_ref()));
-            bindgen_closure.forget(); // TODO: don't forget
+            let id = format!("__staticfn_{}", body as usize);
+            let inner_function = if let Value::Function(function) = crate::global_get(&id) {
+                function
+            } else {
+                let function = {
+                    use wasm_bindgen::{closure::Closure, JsValue};
+                    let bindgen_closure =
+                        Closure::<dyn Fn(JsValue, JsValue, JsValue) -> JsValue>::new(
+                            move |js_this: JsValue, js_data: JsValue, js_args: JsValue| {
+                                let this = Value::from(js_this);
+                                let data = Value::from(js_data);
+                                let mut args = Args {
+                                    this,
+                                    data,
+                                    args: vec![],
+                                };
+                                let js_args_array: js_sys::Array = js_args.into();
+                                for i in 0..js_args_array.length() {
+                                    args.args.push(Value::from(js_args_array.get(i)));
+                                }
+                                let ret = body(args);
+                                JsValue::from(ret)
+                            },
+                        );
+                    let closure = Value::from(JsValue::from(bindgen_closure.as_ref()))
+                        .into_function()
+                        .unwrap();
+                    bindgen_closure.forget();
+                    closure
+                };
+                crate::global_set(&id, function.clone());
+                function
+            };
             let js_wrapper = r#"function wrapper() {
-                return wrapper.__fn.apply(null, [this, Array.from(arguments)]);
+                return wrapper.__fn.apply(null, [this, wrapper.__data, Array.from(arguments)]);
             }"#;
-            let function = crate::eval(&format!("{}; wrapper", js_wrapper)).into_function().unwrap();
-            function.as_object().set("__fn", closure);
+            let function = crate::eval(&format!("{}; wrapper", js_wrapper))
+                .into_function()
+                .unwrap();
+            function.as_object().set("__fn", inner_function);
+            function.as_object().set("__data", data);
             function
         }
     }
@@ -69,12 +119,16 @@ impl Function {
     }
 
     // TODO: add receiver
-    pub fn call_with(&self, receiver: Value, args: impl IntoIterator<Item = Value>) -> Value {
+    pub fn call_with(
+        &self,
+        receiver: impl Into<Value>,
+        args: impl IntoIterator<Item = Value>,
+    ) -> Value {
         #[cfg(not(target_arch = "wasm32"))]
         {
             let scope = crate::v8::scope();
             let function = v8::Local::new(scope, self.function.clone());
-            let receiver = v8::Local::<v8::Value>::from(receiver);
+            let receiver = v8::Local::<v8::Value>::from(receiver.into());
             let args = args
                 .into_iter()
                 .map(|value| v8::Local::<v8::Value>::from(value))
@@ -85,16 +139,13 @@ impl Function {
         }
         #[cfg(target_arch = "wasm32")]
         {
-            let receiver = wasm_bindgen::JsValue::from(receiver);
+            let receiver = wasm_bindgen::JsValue::from(receiver.into());
             let array = js_sys::Array::new();
             for arg in args {
                 array.push(&wasm_bindgen::JsValue::from(arg));
             }
             // TODO: don't unwrap
-            let ret = self
-                .function
-                .apply(&receiver, &array)
-                .unwrap();
+            let ret = self.function.apply(&receiver, &array).unwrap();
             Value::from(ret)
         }
     }
@@ -109,7 +160,7 @@ impl Function {
                 .map(|value| v8::Local::<v8::Value>::from(value))
                 .collect::<Vec<_>>();
             // TODO: don't unwrap
-            let ret = function.new_instance(scope,  &args).unwrap();
+            let ret = function.new_instance(scope, &args).unwrap();
             Object::from(ret)
         }
         #[cfg(target_arch = "wasm32")]
@@ -119,7 +170,8 @@ impl Function {
                 array.push(&wasm_bindgen::JsValue::from(arg));
             }
             // TODO: don't unwrap
-            let object = js_sys::Object::from(js_sys::Reflect::construct(&self.function, &array).unwrap());
+            let object =
+                js_sys::Object::from(js_sys::Reflect::construct(&self.function, &array).unwrap());
             Object::from(object)
         }
     }
@@ -181,12 +233,17 @@ impl From<Function> for wasm_bindgen::JsValue {
 #[derive(Debug, Clone)]
 pub struct Args {
     this: Value,
+    data: Value,
     args: Vec<Value>,
 }
 
 impl Args {
     pub fn this(&self) -> Value {
         self.this.clone()
+    }
+
+    pub fn data(&self) -> Value {
+        self.data.clone()
     }
 
     pub fn get(&self, index: u32) -> Value {
@@ -209,8 +266,9 @@ mod test {
     use crate::{eval, Function, Value};
 
     #[test]
-    fn call_native_function() {
-        let function = Function::new(|args| {
+    fn call_static_function() {
+        let function = Function::new_static(Value::Number(1234.), |args| {
+            assert_eq!(args.data(), Value::Number(1234.));
             let a = args.get(0).into_number().unwrap();
             let b = args.get(1).into_number().unwrap();
             Value::from(a + b)
@@ -232,5 +290,31 @@ mod test {
             .into_number()
             .unwrap();
         assert_eq!(result, 13.);
+    }
+
+    #[test]
+    fn call_function() {
+        let function = Function::new(|_| Value::from(true));
+        let result = function.call([]);
+        assert_eq!(result, Value::Boolean(true));
+    }
+
+    #[test]
+    fn call_function_with_data() {
+        let function = Function::new_with_data(777., |args| args.data());
+        let result = function.call([]);
+        assert_eq!(result, Value::Number(777.));
+    }
+
+    #[test]
+    fn call_function_with_capture() {
+        let function = Function::new(|args| {
+            let name = args.get(0).into_string().unwrap();
+            Value::from(Function::new(move |_| {
+                Value::String(name.clone())
+            }))
+        });
+        let result = function.call(["Bob".into()]).into_function().unwrap();
+        assert_eq!(result.call([]), Value::String("Bob".to_owned()));
     }
 }
