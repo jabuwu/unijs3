@@ -9,21 +9,21 @@ pub struct Function {
 }
 
 impl Function {
-    pub fn new<F: Fn(Args) -> Value + 'static>(body: F) -> Self {
+    pub fn new<F: Fn(Args) -> R + 'static, R: Into<Value> + 'static>(body: F) -> Self {
         Self::new_with_data(Value::Undefined, body)
     }
 
-    pub fn new_with_data<F: Fn(Args) -> Value + 'static>(data: impl Into<Value>, body: F) -> Self {
-        let body_box: Box<dyn Fn(Args) -> Value> = Box::new(body);
+    pub fn new_with_data<F: Fn(Args) -> R + 'static, R: Into<Value> + 'static>(data: impl Into<Value>, body: F) -> Self {
+        let body_box: Box<dyn Fn(Args) -> R> = Box::new(body);
         let closure = native::wrap(body_box);
         let data_arr = Value::from(vec![closure.into(), data.into()]);
         let function = Self::new_static(data_arr, |mut args: Args| {
             let data_arr = args.data().into_array().unwrap();
             let closure = data_arr.get(0).into_object().unwrap();
             let data = data_arr.get(1);
-            let closure = native::get::<Box<dyn Fn(Args) -> Value>>(&closure).unwrap();
+            let closure = native::get::<Box<dyn Fn(Args) -> R>>(&closure).unwrap();
             args.data = data;
-            (closure)(args)
+            (closure)(args).into()
         });
         function
     }
@@ -294,7 +294,7 @@ mod test {
 
     #[test]
     fn call_function() {
-        let function = Function::new(|_| Value::from(true));
+        let function = Function::new(|_| true);
         let result = function.call([]);
         assert_eq!(result, Value::Boolean(true));
     }
@@ -311,7 +311,7 @@ mod test {
         let function = Function::new(|args| {
             let name = args.get(0).into_string().unwrap();
             Value::from(Function::new(move |_| {
-                Value::String(name.clone())
+                name.clone()
             }))
         });
         let result = function.call(["Bob".into()]).into_function().unwrap();
