@@ -76,6 +76,12 @@ impl AsObject for Object {
     }
 }
 
+impl std::fmt::Display for Object {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "[object]")
+    }
+}
+
 #[cfg(not(target_arch = "wasm32"))]
 impl From<v8::Local<'_, v8::Object>> for Object {
     fn from(value: v8::Local<v8::Object>) -> Self {

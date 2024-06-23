@@ -109,9 +109,9 @@ impl std::fmt::Display for Value {
             Self::Boolean(value) => write!(f, "{}", value),
             Self::Number(value) => write!(f, "{}", value),
             Self::String(value) => write!(f, "{}", &value),
-            Self::Array(_) => write!(f, "[array]"),
-            Self::Object(_) => write!(f, "[object]"),
-            Self::Function(_) => write!(f, "[function]"),
+            Self::Array(value) => write!(f, "{}", value),
+            Self::Object(value) => write!(f, "{}", value),
+            Self::Function(value) => write!(f, "{}", value),
         }
     }
 }

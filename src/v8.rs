@@ -39,6 +39,12 @@ unsafe fn global() -> &'static mut Global {
     })
 }
 
+pub fn context() -> &'static mut v8::Local<'static, v8::Context> {
+    unsafe {
+        global().context.as_mut().unwrap()
+    }
+}
+
 pub(crate) fn scope(
 ) -> &'static mut v8::ContextScope<'static, v8::HandleScope<'static, v8::Context>> {
     unsafe {

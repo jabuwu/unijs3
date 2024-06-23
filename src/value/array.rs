@@ -105,6 +105,12 @@ impl AsObject for Array {
     }
 }
 
+impl std::fmt::Display for Array {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "[array]")
+    }
+}
+
 impl From<Vec<Value>> for Array {
     fn from(vec: Vec<Value>) -> Self {
         let array = Array::new();

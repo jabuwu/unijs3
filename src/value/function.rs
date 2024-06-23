@@ -65,17 +65,52 @@ impl Function {
     }
 
     pub fn call(&self, args: impl IntoIterator<Item = Value>) -> Value {
+        self.call_with(Value::Undefined, args)
+    }
+
+    // TODO: add receiver
+    pub fn call_with(&self, receiver: Value, args: impl IntoIterator<Item = Value>) -> Value {
         #[cfg(not(target_arch = "wasm32"))]
         {
             let scope = crate::v8::scope();
             let function = v8::Local::new(scope, self.function.clone());
-            let recv = v8::null(scope);
+            let receiver = v8::Local::<v8::Value>::from(receiver);
             let args = args
                 .into_iter()
                 .map(|value| v8::Local::<v8::Value>::from(value))
                 .collect::<Vec<_>>();
-            let ret = function.call(scope, recv.into(), &args).unwrap();
+            // TODO: don't unwrap
+            let ret = function.call(scope, receiver, &args).unwrap();
             Value::from(ret)
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            let receiver = wasm_bindgen::JsValue::from(receiver);
+            let array = js_sys::Array::new();
+            for arg in args {
+                array.push(&wasm_bindgen::JsValue::from(arg));
+            }
+            // TODO: don't unwrap
+            let ret = self
+                .function
+                .apply(&receiver, &array)
+                .unwrap();
+            Value::from(ret)
+        }
+    }
+
+    pub fn new_instance(&self, args: impl IntoIterator<Item = Value>) -> Object {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let scope = crate::v8::scope();
+            let function = v8::Local::new(scope, self.function.clone());
+            let args = args
+                .into_iter()
+                .map(|value| v8::Local::<v8::Value>::from(value))
+                .collect::<Vec<_>>();
+            // TODO: don't unwrap
+            let ret = function.new_instance(scope,  &args).unwrap();
+            Object::from(ret)
         }
         #[cfg(target_arch = "wasm32")]
         {
@@ -83,11 +118,9 @@ impl Function {
             for arg in args {
                 array.push(&wasm_bindgen::JsValue::from(arg));
             }
-            let ret = self
-                .function
-                .apply(&wasm_bindgen::JsValue::null(), &array)
-                .unwrap();
-            Value::from(ret)
+            // TODO: don't unwrap
+            let object = js_sys::Object::from(js_sys::Reflect::construct(&self.function, &array).unwrap());
+            Object::from(object)
         }
     }
 }
@@ -104,6 +137,12 @@ impl AsObject for Function {
         {
             Object::from(js_sys::Object::from(self.function.clone()))
         }
+    }
+}
+
+impl std::fmt::Display for Function {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "[function]")
     }
 }
 
