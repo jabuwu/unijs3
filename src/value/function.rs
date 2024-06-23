@@ -17,7 +17,7 @@ impl Function {
         let body_box: Box<dyn Fn(Args) -> R> = Box::new(body);
         let closure = native::wrap(body_box);
         let data_arr = Value::from(vec![closure.into(), data.into()]);
-        let function = Self::new_static(data_arr, |mut args: Args| {
+        let function = Self::new_static_with_data(data_arr, |mut args: Args| {
             let data_arr = args.data().into_array().unwrap();
             let closure = data_arr.get(0).into_object().unwrap();
             let data = data_arr.get(1);
@@ -28,7 +28,11 @@ impl Function {
         function
     }
 
-    pub fn new_static(data: impl Into<Value>, body: fn(Args) -> Value) -> Self {
+    pub fn new_static(body: fn(Args) -> Value) -> Self {
+        Self::new_static_with_data(Value::Undefined, body)
+    }
+
+    pub fn new_static_with_data(data: impl Into<Value>, body: fn(Args) -> Value) -> Self {
         #[cfg(not(target_arch = "wasm32"))]
         {
             let scope = crate::v8::scope();
@@ -242,8 +246,16 @@ impl Args {
         self.this.clone()
     }
 
+    pub fn this_ref(&self) -> &Value {
+        &self.this
+    }
+
     pub fn data(&self) -> Value {
         self.data.clone()
+    }
+
+    pub fn data_ref(&self) -> &Value {
+        &self.data
     }
 
     pub fn get(&self, index: u32) -> Value {
@@ -267,7 +279,7 @@ mod test {
 
     #[test]
     fn call_static_function() {
-        let function = Function::new_static(Value::Number(1234.), |args| {
+        let function = Function::new_static_with_data(Value::Number(1234.), |args| {
             assert_eq!(args.data(), Value::Number(1234.));
             let a = args.get(0).into_number().unwrap();
             let b = args.get(1).into_number().unwrap();

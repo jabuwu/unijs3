@@ -12,7 +12,7 @@ fn registry() -> Object {
     let registry = if let Some(registry) = global_get("__finalization_registry").into_object() {
         registry
     } else {
-        let cleanup = Function::new_static(Value::Null, |args| {
+        let cleanup = Function::new_static(|args| {
             let object = args.get(0).into_object().unwrap();
             let Some(data) = object.get("_data").into_number() else {
                 return Value::Undefined;

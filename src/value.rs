@@ -98,6 +98,102 @@ impl Value {
             None
         }
     }
+
+    pub fn as_boolean(&self) -> Option<&bool> {
+        if let Self::Boolean(value) = self {
+            Some(value)
+        } else {
+            None
+        }
+    }
+
+    pub fn as_boolean_mut(&mut self) -> Option<&mut bool> {
+        if let Self::Boolean(value) = self {
+            Some(value)
+        } else {
+            None
+        }
+    }
+
+    pub fn as_number(&self) -> Option<&f64> {
+        if let Self::Number(value) = self {
+            Some(value)
+        } else {
+            None
+        }
+    }
+
+    pub fn as_number_mut(&mut self) -> Option<&mut f64> {
+        if let Self::Number(value) = self {
+            Some(value)
+        } else {
+            None
+        }
+    }
+
+    pub fn as_string(&self) -> Option<&String> {
+        if let Self::String(value) = self {
+            Some(value)
+        } else {
+            None
+        }
+    }
+
+    pub fn as_string_mut(&mut self) -> Option<&mut String> {
+        if let Self::String(value) = self {
+            Some(value)
+        } else {
+            None
+        }
+    }
+
+    pub fn as_array(&self) -> Option<&Array> {
+        if let Self::Array(value) = self {
+            Some(value)
+        } else {
+            None
+        }
+    }
+
+    pub fn as_array_mut(&mut self) -> Option<&mut Array> {
+        if let Self::Array(value) = self {
+            Some(value)
+        } else {
+            None
+        }
+    }
+
+    pub fn as_object(&self) -> Option<&Object> {
+        if let Self::Object(value) = self {
+            Some(value)
+        } else {
+            None
+        }
+    }
+
+    pub fn as_object_mut(&mut self) -> Option<&mut Object> {
+        if let Self::Object(value) = self {
+            Some(value)
+        } else {
+            None
+        }
+    }
+
+    pub fn as_function(&self) -> Option<&Function> {
+        if let Self::Function(value) = self {
+            Some(value)
+        } else {
+            None
+        }
+    }
+
+    pub fn as_function_mut(&mut self) -> Option<&mut Function> {
+        if let Self::Function(value) = self {
+            Some(value)
+        } else {
+            None
+        }
+    }
 }
 
 impl std::fmt::Display for Value {
