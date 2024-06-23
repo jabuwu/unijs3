@@ -143,6 +143,20 @@ impl Object {
             todo!()
         }
     }
+
+    pub fn set_prototype(&self, prototype: impl Into<Value>) {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let scope = crate::v8::scope();
+            let object = v8::Local::new(scope, self.object.clone());
+            let value = v8::Local::<v8::Value>::from(prototype.into());
+            object.set_prototype(scope, value);
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            todo!()
+        }
+    }
 }
 
 impl AsObject for Object {
