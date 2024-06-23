@@ -50,3 +50,17 @@ pub(crate) fn scope(
         }
     }
 }
+
+pub fn push_scope(scope: &mut v8::HandleScope<'_>) {
+    unsafe {
+        let global = GLOBAL.get_or_insert_with(|| Global::default());
+        global.scope_stack.push(transmute(scope));
+    }
+}
+
+pub fn pop_scope() {
+    unsafe {
+        let global = GLOBAL.get_or_insert_with(|| Global::default());
+        global.scope_stack.pop();
+    }
+}

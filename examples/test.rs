@@ -1,17 +1,13 @@
 use tracing::{info, Level};
-use unijs3::{eval, Array, AsObject, Value};
+use unijs3::{Function, Value};
 
 fn main() {
     unilog::init(Level::INFO, "");
-    let array = Array::from(vec![
-        0.0.into(),
-        "hello".into(),
-        vec![636.0.into()].into(),
-    ]);
-    let function = eval("function hi(arg) { console.log(arg) }; hi").into_function().unwrap();
-    function.call([array.into()]);
-    function.as_object().set("asdf", Value::Number(1.));
-    info!("{:?}", function.as_object().get("asdf"));
-    let f = Value::from(function.clone());
-    function.call(vec![f]);
+    let add = Function::new(|args| {
+        let a = args.get(0).into_number().unwrap();
+        let b = args.get(1).into_number().unwrap();
+        Value::Number(a + b)
+    });
+    let result = add.call([3.0.into(), 4.0.into()]);
+    info!("{}", result);
 }
