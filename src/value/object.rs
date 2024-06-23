@@ -275,13 +275,13 @@ mod test {
         object.set("pi", 3.14);
         object.set("obj", Object::new());
         object.set("arr", Array::new());
-        object.set("fn", Function::new(|_| {}));
+        object.set("fn", Function::new(|_| Ok(())));
         assert_eq!(object.keys(), vec!["foo", "pi", "obj", "arr", "fn"]);
     }
 
     #[test]
     fn prototype() {
-        let class = Function::new(|_| {});
+        let class = Function::new(|_| Ok(()));
         class.as_object().define_property("name", "class");
 
         let instance = class.new_instance([]).unwrap();
@@ -294,7 +294,7 @@ mod test {
             class.into()
         );
 
-        let class2 = Function::new(|_| {});
+        let class2 = Function::new(|_| Ok(()));
         class2.as_object().define_property("name", "class2");
 
         instance.set_prototype(class2.clone().as_object().get("prototype"));

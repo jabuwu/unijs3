@@ -150,7 +150,6 @@ impl Value {
 
 impl std::fmt::Display for Value {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        // TODO: nicer output for array, object
         match self {
             Self::Undefined => write!(f, "undefined"),
             Self::Null => write!(f, "null"),
@@ -358,7 +357,7 @@ mod test {
         assert_eq!(format!("{:?}", Value::Array(Array::new())), "Array([])");
         assert_eq!(format!("{:?}", Value::Object(Object::new())), "Object({})");
         assert_eq!(
-            format!("{:?}", Value::Function(Function::new(|_| {}))),
+            format!("{:?}", Value::Function(Function::new(|_| Ok(())))),
             "Function(ƒ())"
         );
     }
@@ -379,7 +378,7 @@ mod test {
                 0.0.into(),
                 "hello".into(),
                 Object::new().into(),
-                Function::new(|_| {}).into()
+                Function::new(|_| Ok(())).into()
             ]))
             .to_string(),
             "[0, \"hello\", {}, ƒ()]"
@@ -391,13 +390,13 @@ mod test {
         object.set("pi", 3.14);
         object.set("obj", Object::new());
         object.set("arr", Array::new());
-        object.set("fn", Function::new(|_| {}));
+        object.set("fn", Function::new(|_| Ok(())));
         assert_eq!(
             object.to_string(),
             "{ foo: \"bar\", pi: 3.14, obj: {}, arr: [], fn: ƒ() }"
         );
 
-        assert_eq!(Value::Function(Function::new(|_| {})).to_string(), "ƒ()");
+        assert_eq!(Value::Function(Function::new(|_| Ok(()))).to_string(), "ƒ()");
         assert_eq!(eval("function hi() {}; hi").to_string(), "hi()");
     }
 

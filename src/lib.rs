@@ -1,6 +1,8 @@
 mod value;
+mod exception;
 
 pub use value::*;
+pub use exception::*;
 
 pub mod native;
 pub mod json;
@@ -8,7 +10,6 @@ pub mod json;
 #[cfg(not(target_arch = "wasm32"))]
 mod v8;
 
-// TODO: remove unwraps and return error
 pub fn eval(source: impl AsRef<str>) -> Result<Value, Value> {
     #[cfg(not(target_arch = "wasm32"))]
     {

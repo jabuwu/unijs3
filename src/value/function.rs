@@ -1,4 +1,4 @@
-use crate::{native, AsObject, Object, Value};
+use crate::{native, AsObject, Exception, Object, Value};
 
 #[derive(Clone, PartialEq)]
 pub struct Function {
@@ -9,26 +9,32 @@ pub struct Function {
 }
 
 impl Function {
-    pub fn new<F: Fn(Args) -> R + 'static, R: Into<Throwable> + 'static>(body: F) -> Self {
+    pub fn new<F: Fn(Args) -> Result<R, Exception> + 'static, R: Into<Value> + 'static>(
+        body: F,
+    ) -> Self {
         Self::new_with_data(Value::Undefined, body)
     }
 
-    pub fn new_with_data<F: Fn(Args) -> R + 'static, R: Into<Throwable> + 'static>(
+    pub fn new_with_data<
+        F: Fn(Args) -> Result<R, Exception> + 'static,
+        R: Into<Value> + 'static,
+    >(
         data: impl Into<Value>,
         body: F,
     ) -> Self {
-        let body_box: Box<dyn Fn(Args) -> R> = Box::new(body);
+        let body_box: Box<dyn Fn(Args) -> Result<R, Exception>> = Box::new(body);
         let closure = native::wrap(body_box);
         let data_arr = Value::from(vec![closure.into(), data.into()]);
         let function = Self::new_static_with_data(data_arr, |mut args: Args| {
             let data_arr = args.data().into_array().unwrap();
             let closure = data_arr.get(0).into_object().unwrap();
             let data = data_arr.get(1);
-            let closure = native::get::<Box<dyn Fn(Args) -> R>>(&closure).unwrap();
+            let closure =
+                native::get::<Box<dyn Fn(Args) -> Result<R, Exception>>>(&closure).unwrap();
             args.data = data;
             match (closure)(args).into() {
-                Throwable::Ok(value) => Ok(value),
-                Throwable::Exception(value) => Err(value),
+                Ok(value) => Ok(value.into()),
+                Err(value) => Err(Value::from(value)),
             }
         });
         function
@@ -148,7 +154,6 @@ impl Function {
         self.call_with(Value::Undefined, args)
     }
 
-    // TODO: add receiver
     pub fn call_with(
         &self,
         receiver: impl Into<Value>,
@@ -184,7 +189,6 @@ impl Function {
             for arg in args {
                 array.push(&wasm_bindgen::JsValue::from(arg));
             }
-            // TODO: don't unwrap
             match self.function.apply(&receiver, &array) {
                 Ok(value) => Ok(Value::from(value)),
                 Err(value) => Err(Value::from(value)),
@@ -333,24 +337,12 @@ impl Args {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub enum Throwable {
-    Ok(Value),
-    Exception(Value),
-}
-
-impl<T: Into<Value>> From<T> for Throwable {
-    fn from(value: T) -> Self {
-        Throwable::Ok(value.into())
-    }
-}
-
 #[cfg(test)]
 mod test {
     #[cfg(target_arch = "wasm32")]
     use wasm_bindgen_test::wasm_bindgen_test as test;
 
-    use crate::{eval, Function, Throwable, Value};
+    use crate::{eval, Function, Value};
 
     #[test]
     fn call_static_function() {
@@ -398,14 +390,14 @@ mod test {
 
     #[test]
     fn call_function() {
-        let function = Function::new(|_| true);
+        let function = Function::new(|_| Ok(true));
         let result = function.call([]).unwrap();
         assert_eq!(result, Value::Boolean(true));
     }
 
     #[test]
     fn call_function_with_data() {
-        let function = Function::new_with_data(777., |args| args.data());
+        let function = Function::new_with_data(777., |args| Ok(args.data()));
         let result = function.call([]).unwrap();
         assert_eq!(result, Value::Number(777.));
     }
@@ -414,7 +406,7 @@ mod test {
     fn call_function_with_capture() {
         let function = Function::new(|args| {
             let name = args.get(0).into_string().unwrap();
-            Value::from(Function::new(move |_| name.clone()))
+            Ok(Value::from(Function::new(move |_| Ok(name.clone()))))
         });
         let result = function
             .call(["Bob".into()])
@@ -430,6 +422,7 @@ mod test {
             let this = args.this().into_object().unwrap();
             this.set("x", 1.);
             this.set("y", 2.);
+            Ok(())
         });
         let result = function.new_instance([]).unwrap();
         assert_eq!(result.get("x"), Value::Number(1.));
@@ -438,7 +431,7 @@ mod test {
 
     #[test]
     fn call_new_with_exception() {
-        let function = Function::new(|_| Throwable::Exception(Value::String("nope".to_owned())));
+        let function = Function::new(|_| Err::<Value, _>(Value::String("nope".to_owned()).into()));
         let result = function.new_instance([]).unwrap_err();
         assert_eq!(result, Value::String("nope".to_owned()));
     }
