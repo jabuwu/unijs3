@@ -1,6 +1,6 @@
 use crate::{AsObject, Object, Value};
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub struct Array {
     #[cfg(not(target_arch = "wasm32"))]
     array: v8::Global<v8::Array>,
@@ -105,9 +105,22 @@ impl AsObject for Array {
     }
 }
 
+impl std::fmt::Debug for Array {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Array")
+    }
+}
+
 impl std::fmt::Display for Array {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "[array]")
+        write!(f, "[")?;
+        for i in 0..self.length() {
+            if i != 0 {
+                write!(f, ", ")?;
+            }
+                write!(f, "{}", self.get(i))?;
+        }
+        write!(f, "]")
     }
 }
 

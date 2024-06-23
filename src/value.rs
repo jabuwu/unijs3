@@ -107,23 +107,7 @@ impl Value {
         }
     }
 
-    pub fn as_boolean_mut(&mut self) -> Option<&mut bool> {
-        if let Self::Boolean(value) = self {
-            Some(value)
-        } else {
-            None
-        }
-    }
-
     pub fn as_number(&self) -> Option<&f64> {
-        if let Self::Number(value) = self {
-            Some(value)
-        } else {
-            None
-        }
-    }
-
-    pub fn as_number_mut(&mut self) -> Option<&mut f64> {
         if let Self::Number(value) = self {
             Some(value)
         } else {
@@ -139,23 +123,7 @@ impl Value {
         }
     }
 
-    pub fn as_string_mut(&mut self) -> Option<&mut String> {
-        if let Self::String(value) = self {
-            Some(value)
-        } else {
-            None
-        }
-    }
-
     pub fn as_array(&self) -> Option<&Array> {
-        if let Self::Array(value) = self {
-            Some(value)
-        } else {
-            None
-        }
-    }
-
-    pub fn as_array_mut(&mut self) -> Option<&mut Array> {
         if let Self::Array(value) = self {
             Some(value)
         } else {
@@ -171,23 +139,7 @@ impl Value {
         }
     }
 
-    pub fn as_object_mut(&mut self) -> Option<&mut Object> {
-        if let Self::Object(value) = self {
-            Some(value)
-        } else {
-            None
-        }
-    }
-
     pub fn as_function(&self) -> Option<&Function> {
-        if let Self::Function(value) = self {
-            Some(value)
-        } else {
-            None
-        }
-    }
-
-    pub fn as_function_mut(&mut self) -> Option<&mut Function> {
         if let Self::Function(value) = self {
             Some(value)
         } else {
@@ -204,7 +156,7 @@ impl std::fmt::Display for Value {
             Self::Null => write!(f, "null"),
             Self::Boolean(value) => write!(f, "{}", value),
             Self::Number(value) => write!(f, "{}", value),
-            Self::String(value) => write!(f, "{}", &value),
+            Self::String(value) => write!(f, "\"{}\"", &value),
             Self::Array(value) => write!(f, "{}", value),
             Self::Object(value) => write!(f, "{}", value),
             Self::Function(value) => write!(f, "{}", value),
@@ -381,7 +333,30 @@ mod test {
     #[cfg(target_arch = "wasm32")]
     use wasm_bindgen_test::wasm_bindgen_test as test;
 
-    use crate::{eval, Array, Object, Value};
+    use crate::{eval, Array, Function, Object, Value};
+
+    #[test]
+    fn debug() {
+        assert_eq!(format!("{:?}", Value::Undefined), "Undefined");
+        assert_eq!(format!("{:?}", Value::Null), "Null");
+        assert_eq!(format!("{:?}", Value::Boolean(true)), "Boolean(true)");
+        assert_eq!(format!("{:?}", Value::Boolean(false)), "Boolean(false)");
+        assert_eq!(format!("{:?}", Value::Number(3.)), "Number(3.0)");
+        assert_eq!(format!("{:?}", Value::Number(3.3)), "Number(3.3)");
+        assert_eq!(
+            format!("{:?}", Value::String("hello".to_owned())),
+            "String(\"hello\")"
+        );
+        assert_eq!(format!("{:?}", Value::Array(Array::new())), "Array(Array)");
+        assert_eq!(
+            format!("{:?}", Value::Object(Object::new())),
+            "Object(Object)"
+        );
+        assert_eq!(
+            format!("{:?}", Value::Function(Function::new(|_| {}))),
+            "Function(Function)"
+        );
+    }
 
     #[test]
     fn display() {
@@ -391,10 +366,34 @@ mod test {
         assert_eq!(Value::Boolean(false).to_string(), "false");
         assert_eq!(Value::Number(3.).to_string(), "3");
         assert_eq!(Value::Number(3.3).to_string(), "3.3");
-        assert_eq!(Value::String("hello".to_owned()).to_string(), "hello");
-        assert_eq!(Value::Array(Array::new()).to_string(), "[array]");
-        assert_eq!(Value::Object(Object::new()).to_string(), "[object]");
-        // TODO: Function
+        assert_eq!(Value::String("hello".to_owned()).to_string(), "\"hello\"");
+
+        assert_eq!(Value::Array(Array::new()).to_string(), "[]");
+        assert_eq!(
+            Value::Array(Array::from(vec![
+                0.0.into(),
+                "hello".into(),
+                Object::new().into(),
+                Function::new(|_| {}).into()
+            ]))
+            .to_string(),
+            "[0, \"hello\", {}, ƒ()]"
+        );
+
+        assert_eq!(Value::Object(Object::new()).to_string(), "{}");
+        let object = Object::new();
+        object.set("foo", "bar");
+        object.set("pi", 3.14);
+        object.set("obj", Object::new());
+        object.set("arr", Array::new());
+        object.set("fn", Function::new(|_| {}));
+        assert_eq!(
+            object.to_string(),
+            "{ foo: \"bar\", pi: 3.14, obj: {}, arr: [], fn: ƒ() }"
+        );
+
+        assert_eq!(Value::Function(Function::new(|_| {})).to_string(), "ƒ()");
+        assert_eq!(eval("function hi() {}; hi").to_string(), "hi()");
     }
 
     #[test]

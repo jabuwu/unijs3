@@ -1,6 +1,6 @@
 use crate::{native, AsObject, Object, Value};
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub struct Function {
     #[cfg(not(target_arch = "wasm32"))]
     function: v8::Global<v8::Function>,
@@ -109,7 +109,8 @@ impl Function {
             let js_wrapper = r#"function wrapper() {
                 return wrapper.__fn.apply(null, [this, wrapper.__data, Array.from(arguments)]);
             }"#;
-            let function = crate::eval(&format!("{}; wrapper", js_wrapper))
+            // TODO: add define_property to Object
+            let function = crate::eval(&format!("{}; Object.defineProperty(wrapper, \"name\", {{ value: \"\" }}); wrapper", js_wrapper))
                 .into_function()
                 .unwrap();
             function.as_object().set("__fn", inner_function);
@@ -196,9 +197,20 @@ impl AsObject for Function {
     }
 }
 
+impl std::fmt::Debug for Function {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Function")
+    }
+}
+
 impl std::fmt::Display for Function {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "[function]")
+        let name = self.as_object().get("name").into_string().unwrap_or_else(|| String::new());
+        if name.is_empty() {
+            write!(f, "ƒ()")
+        } else {
+            write!(f, "{}()", name)
+        }
     }
 }
 
