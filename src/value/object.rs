@@ -284,7 +284,7 @@ mod test {
         let class = Function::new(|_| {});
         class.as_object().define_property("name", "class");
 
-        let instance = class.new_instance([]);
+        let instance = class.new_instance([]).unwrap();
         assert_eq!(
             instance
                 .prototype()

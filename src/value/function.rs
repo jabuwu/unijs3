@@ -9,11 +9,14 @@ pub struct Function {
 }
 
 impl Function {
-    pub fn new<F: Fn(Args) -> R + 'static, R: Into<Value> + 'static>(body: F) -> Self {
+    pub fn new<F: Fn(Args) -> R + 'static, R: Into<Throwable> + 'static>(body: F) -> Self {
         Self::new_with_data(Value::Undefined, body)
     }
 
-    pub fn new_with_data<F: Fn(Args) -> R + 'static, R: Into<Value> + 'static>(data: impl Into<Value>, body: F) -> Self {
+    pub fn new_with_data<F: Fn(Args) -> R + 'static, R: Into<Throwable> + 'static>(
+        data: impl Into<Value>,
+        body: F,
+    ) -> Self {
         let body_box: Box<dyn Fn(Args) -> R> = Box::new(body);
         let closure = native::wrap(body_box);
         let data_arr = Value::from(vec![closure.into(), data.into()]);
@@ -23,16 +26,22 @@ impl Function {
             let data = data_arr.get(1);
             let closure = native::get::<Box<dyn Fn(Args) -> R>>(&closure).unwrap();
             args.data = data;
-            (closure)(args).into()
+            match (closure)(args).into() {
+                Throwable::Ok(value) => Ok(value),
+                Throwable::Exception(value) => Err(value),
+            }
         });
         function
     }
 
-    pub fn new_static(body: fn(Args) -> Value) -> Self {
+    pub fn new_static(body: fn(Args) -> Result<Value, Value>) -> Self {
         Self::new_static_with_data(Value::Undefined, body)
     }
 
-    pub fn new_static_with_data(data: impl Into<Value>, body: fn(Args) -> Value) -> Self {
+    pub fn new_static_with_data(
+        data: impl Into<Value>,
+        body: fn(Args) -> Result<Value, Value>,
+    ) -> Self {
         #[cfg(not(target_arch = "wasm32"))]
         {
             let scope = crate::v8::scope();
@@ -46,7 +55,8 @@ impl Function {
                     crate::v8::push_scope(v8_scope);
                     let data_arr = Value::from(v8_args.data()).into_array().unwrap();
                     let body_ptr = data_arr.get(0).into_number().unwrap();
-                    let f: fn(Args) -> Value = unsafe { std::mem::transmute(body_ptr as usize) };
+                    let f: fn(Args) -> Result<Value, Value> =
+                        unsafe { std::mem::transmute(body_ptr as usize) };
                     let data = data_arr.get(1);
                     let this = Value::from(Object::from(v8_args.this()));
                     let mut args = Args {
@@ -57,9 +67,17 @@ impl Function {
                     for i in 0..v8_args.length() {
                         args.args.push(Value::from(v8_args.get(i)));
                     }
-                    let value = v8::Local::<v8::Value>::from(f(args));
-                    crate::v8::pop_scope();
-                    v8_ret.set(value);
+                    match f(args) {
+                        Ok(value) => {
+                            let value = v8::Local::<v8::Value>::from(value);
+                            crate::v8::pop_scope();
+                            v8_ret.set(value);
+                        }
+                        Err(err) => {
+                            v8_scope.throw_exception(v8::Local::<v8::Value>::from(err));
+                            crate::v8::pop_scope();
+                        }
+                    }
                 },
             )
             .data(v8::Local::<v8::Value>::from(v8::Local::<v8::Array>::from(
@@ -79,24 +97,27 @@ impl Function {
             } else {
                 let function = {
                     use wasm_bindgen::{closure::Closure, JsValue};
-                    let bindgen_closure =
-                        Closure::<dyn Fn(JsValue, JsValue, JsValue) -> JsValue>::new(
-                            move |js_this: JsValue, js_data: JsValue, js_args: JsValue| {
-                                let this = Value::from(js_this);
-                                let data = Value::from(js_data);
-                                let mut args = Args {
-                                    this,
-                                    data,
-                                    args: vec![],
-                                };
-                                let js_args_array: js_sys::Array = js_args.into();
-                                for i in 0..js_args_array.length() {
-                                    args.args.push(Value::from(js_args_array.get(i)));
-                                }
-                                let ret = body(args);
-                                JsValue::from(ret)
-                            },
-                        );
+                    let bindgen_closure = Closure::<
+                        dyn Fn(JsValue, JsValue, JsValue) -> Result<JsValue, JsValue>,
+                    >::new(
+                        move |js_this: JsValue, js_data: JsValue, js_args: JsValue| {
+                            let this = Value::from(js_this);
+                            let data = Value::from(js_data);
+                            let mut args = Args {
+                                this,
+                                data,
+                                args: vec![],
+                            };
+                            let js_args_array: js_sys::Array = js_args.into();
+                            for i in 0..js_args_array.length() {
+                                args.args.push(Value::from(js_args_array.get(i)));
+                            }
+                            match body(args) {
+                                Ok(value) => Ok(JsValue::from(value)),
+                                Err(err) => Err(JsValue::from(err)),
+                            }
+                        },
+                    );
                     let closure = Value::from(JsValue::from(bindgen_closure.as_ref()))
                         .into_function()
                         .unwrap();
@@ -110,16 +131,20 @@ impl Function {
                 return wrapper.__fn.apply(null, [this, wrapper.__data, Array.from(arguments)]);
             }"#;
             // TODO: add define_property to Object
-            let function = crate::eval(&format!("{}; Object.defineProperty(wrapper, \"name\", {{ value: \"\" }}); wrapper", js_wrapper))
-                .into_function()
-                .unwrap();
+            let function = crate::eval(&format!(
+                "{}; Object.defineProperty(wrapper, \"name\", {{ value: \"\" }}); wrapper",
+                js_wrapper
+            ))
+            .unwrap()
+            .into_function()
+            .unwrap();
             function.as_object().set("__fn", inner_function);
             function.as_object().set("__data", data);
             function
         }
     }
 
-    pub fn call(&self, args: impl IntoIterator<Item = Value>) -> Value {
+    pub fn call(&self, args: impl IntoIterator<Item = Value>) -> Result<Value, Value> {
         self.call_with(Value::Undefined, args)
     }
 
@@ -128,7 +153,7 @@ impl Function {
         &self,
         receiver: impl Into<Value>,
         args: impl IntoIterator<Item = Value>,
-    ) -> Value {
+    ) -> Result<Value, Value> {
         #[cfg(not(target_arch = "wasm32"))]
         {
             let scope = crate::v8::scope();
@@ -138,9 +163,19 @@ impl Function {
                 .into_iter()
                 .map(|value| v8::Local::<v8::Value>::from(value))
                 .collect::<Vec<_>>();
-            // TODO: don't unwrap
-            let ret = function.call(scope, receiver, &args).unwrap();
-            Value::from(ret)
+            let result = {
+                let scope = &mut v8::TryCatch::new(scope);
+                crate::v8::push_scope(scope);
+                if let Some(ret) = function.call(scope, receiver, &args) {
+                    Ok(Value::from(ret))
+                } else {
+                    // TODO: don't unwrap
+                    let exception = scope.exception().unwrap();
+                    Err(Value::from(exception))
+                }
+            };
+            crate::v8::pop_scope();
+            result
         }
         #[cfg(target_arch = "wasm32")]
         {
@@ -150,12 +185,14 @@ impl Function {
                 array.push(&wasm_bindgen::JsValue::from(arg));
             }
             // TODO: don't unwrap
-            let ret = self.function.apply(&receiver, &array).unwrap();
-            Value::from(ret)
+            match self.function.apply(&receiver, &array) {
+                Ok(value) => Ok(Value::from(value)),
+                Err(value) => Err(Value::from(value)),
+            }
         }
     }
 
-    pub fn new_instance(&self, args: impl IntoIterator<Item = Value>) -> Object {
+    pub fn new_instance(&self, args: impl IntoIterator<Item = Value>) -> Result<Object, Value> {
         #[cfg(not(target_arch = "wasm32"))]
         {
             let scope = crate::v8::scope();
@@ -164,9 +201,19 @@ impl Function {
                 .into_iter()
                 .map(|value| v8::Local::<v8::Value>::from(value))
                 .collect::<Vec<_>>();
-            // TODO: don't unwrap
-            let ret = function.new_instance(scope, &args).unwrap();
-            Object::from(ret)
+            let result = {
+                let scope = &mut v8::TryCatch::new(scope);
+                crate::v8::push_scope(scope);
+                if let Some(ret) = function.new_instance(scope, &args) {
+                    Ok(Object::from(ret))
+                } else {
+                    // TODO: don't unwrap
+                    let exception = scope.exception().unwrap();
+                    Err(Value::from(exception))
+                }
+            };
+            crate::v8::pop_scope();
+            result
         }
         #[cfg(target_arch = "wasm32")]
         {
@@ -174,10 +221,10 @@ impl Function {
             for arg in args {
                 array.push(&wasm_bindgen::JsValue::from(arg));
             }
-            // TODO: don't unwrap
-            let object =
-                js_sys::Object::from(js_sys::Reflect::construct(&self.function, &array).unwrap());
-            Object::from(object)
+            match js_sys::Reflect::construct(&self.function, &array) {
+                Ok(object) => Ok(Object::from(js_sys::Object::from(object))),
+                Err(err) => Err(Value::from(err)),
+            }
         }
     }
 }
@@ -205,7 +252,11 @@ impl std::fmt::Debug for Function {
 
 impl std::fmt::Display for Function {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        let name = self.as_object().get("name").into_string().unwrap_or_else(|| String::new());
+        let name = self
+            .as_object()
+            .get("name")
+            .into_string()
+            .unwrap_or_else(|| String::new());
         if name.is_empty() {
             write!(f, "ƒ()")
         } else {
@@ -282,12 +333,24 @@ impl Args {
     }
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub enum Throwable {
+    Ok(Value),
+    Exception(Value),
+}
+
+impl<T: Into<Value>> From<T> for Throwable {
+    fn from(value: T) -> Self {
+        Throwable::Ok(value.into())
+    }
+}
+
 #[cfg(test)]
 mod test {
     #[cfg(target_arch = "wasm32")]
     use wasm_bindgen_test::wasm_bindgen_test as test;
 
-    use crate::{eval, Function, Value};
+    use crate::{eval, Function, Throwable, Value};
 
     #[test]
     fn call_static_function() {
@@ -295,10 +358,11 @@ mod test {
             assert_eq!(args.data(), Value::Number(1234.));
             let a = args.get(0).into_number().unwrap();
             let b = args.get(1).into_number().unwrap();
-            Value::from(a + b)
+            Ok(Value::from(a + b))
         });
         let result = function
             .call([6.0.into(), 7.0.into()])
+            .unwrap()
             .into_number()
             .unwrap();
         assert_eq!(result, 13.);
@@ -307,10 +371,26 @@ mod test {
     #[test]
     fn call_js_function() {
         let function = eval("function test(a, b) { return a + b; }; test")
+            .unwrap()
             .into_function()
             .unwrap();
         let result = function
             .call([6.0.into(), 7.0.into()])
+            .unwrap()
+            .into_number()
+            .unwrap();
+        assert_eq!(result, 13.);
+    }
+
+    #[test]
+    fn call_js_function_with_exception() {
+        let function = eval("function test(a, b) { throw a + b; }; test")
+            .unwrap()
+            .into_function()
+            .unwrap();
+        let result = function
+            .call([6.0.into(), 7.0.into()])
+            .unwrap_err()
             .into_number()
             .unwrap();
         assert_eq!(result, 13.);
@@ -319,14 +399,14 @@ mod test {
     #[test]
     fn call_function() {
         let function = Function::new(|_| true);
-        let result = function.call([]);
+        let result = function.call([]).unwrap();
         assert_eq!(result, Value::Boolean(true));
     }
 
     #[test]
     fn call_function_with_data() {
         let function = Function::new_with_data(777., |args| args.data());
-        let result = function.call([]);
+        let result = function.call([]).unwrap();
         assert_eq!(result, Value::Number(777.));
     }
 
@@ -334,11 +414,53 @@ mod test {
     fn call_function_with_capture() {
         let function = Function::new(|args| {
             let name = args.get(0).into_string().unwrap();
-            Value::from(Function::new(move |_| {
-                name.clone()
-            }))
+            Value::from(Function::new(move |_| name.clone()))
         });
-        let result = function.call(["Bob".into()]).into_function().unwrap();
-        assert_eq!(result.call([]), Value::String("Bob".to_owned()));
+        let result = function
+            .call(["Bob".into()])
+            .unwrap()
+            .into_function()
+            .unwrap();
+        assert_eq!(result.call([]).unwrap(), Value::String("Bob".to_owned()));
+    }
+
+    #[test]
+    fn call_new() {
+        let function = Function::new(|args| {
+            let this = args.this().into_object().unwrap();
+            this.set("x", 1.);
+            this.set("y", 2.);
+        });
+        let result = function.new_instance([]).unwrap();
+        assert_eq!(result.get("x"), Value::Number(1.));
+        assert_eq!(result.get("y"), Value::Number(2.));
+    }
+
+    #[test]
+    fn call_new_with_exception() {
+        let function = Function::new(|_| Throwable::Exception(Value::String("nope".to_owned())));
+        let result = function.new_instance([]).unwrap_err();
+        assert_eq!(result, Value::String("nope".to_owned()));
+    }
+
+    #[test]
+    fn call_js_new() {
+        let function = eval("function test() { this.x = 1; this.y = 2; }; test")
+            .unwrap()
+            .into_function()
+            .unwrap();
+        let result = function.new_instance([]).unwrap();
+        assert_eq!(result.get("x"), Value::Number(1.));
+        assert_eq!(result.get("y"), Value::Number(2.));
+    }
+
+    #[test]
+    fn call_js_new_with_exception() {
+        let function = eval("function test() { throw \"nope\"; }; test")
+            .unwrap()
+            .into_function()
+            .unwrap();
+        let result = function.new_instance([]).unwrap_err();
+        assert_eq!(result, Value::String("nope".to_owned()));
     }
 }

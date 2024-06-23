@@ -337,7 +337,11 @@ mod test {
     #[cfg(target_arch = "wasm32")]
     use wasm_bindgen_test::wasm_bindgen_test as test;
 
-    use crate::{eval, Array, Function, Object, Value};
+    use crate::{Array, Function, Object, Value};
+
+    fn eval(source: impl AsRef<str>) -> Value {
+        crate::eval(source).unwrap()
+    }
 
     #[test]
     fn debug() {
@@ -399,7 +403,7 @@ mod test {
 
     #[test]
     fn convert_from() {
-        assert_eq!(eval("let a = {}; a.b"), Value::Undefined);
+        assert_eq!(eval("({}).a"), Value::Undefined);
         assert_eq!(eval("null"), Value::Null);
         assert_eq!(eval("true"), Value::Boolean(true));
         assert_eq!(eval("false"), Value::Boolean(false));
@@ -420,7 +424,7 @@ mod test {
             ))
             .into_function()
             .unwrap();
-            if !check.call([value.clone()]).into_boolean().unwrap() {
+            if !check.call([value.clone()]).unwrap().into_boolean().unwrap() {
                 panic!("Conversion failed: {} != {}", value, js);
             }
         }

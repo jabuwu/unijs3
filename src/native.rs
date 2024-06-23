@@ -17,10 +17,10 @@ fn registry() -> Object {
         let cleanup = Function::new_static(|args| {
             let object = args.get(0).into_object().unwrap();
             let Some(data) = object.get("_data").into_number() else {
-                return Value::Undefined;
+                return Ok(Value::Undefined);
             };
             let Some(vtable) = object.get("_vtable").into_number() else {
-                return Value::Undefined;
+                return Ok(Value::Undefined);
             };
             let fat_pointer = FatPointer {
                 data_pointer: data as usize as *mut u8,
@@ -30,10 +30,10 @@ fn registry() -> Object {
                 let any: *mut MaybeUninit<Box<dyn Any>> = &mut transmute(fat_pointer);
                 (*any).assume_init_drop();
             }
-            Value::Undefined
+            Ok(Value::Undefined)
         });
-        let finalization_registry = eval("FinalizationRegistry").into_function().unwrap();
-        let registry = finalization_registry.new_instance([cleanup.into()]);
+        let finalization_registry = eval("FinalizationRegistry").unwrap().into_function().unwrap();
+        let registry = finalization_registry.new_instance([cleanup.into()]).unwrap();
         global_set("__finalization_registry", registry.clone());
         registry
     };
@@ -50,14 +50,14 @@ fn add_drop(object: Object) -> Object {
     register.call_with(
         registry.clone(),
         [object.into(), value.into(), token.clone().into()],
-    );
+    ).unwrap();
     token
 }
 
 fn remove_drop(token: Object) {
     let registry = registry();
     let unregister = registry.get("unregister").into_function().unwrap();
-    unregister.call_with(registry.clone(), [token.into()]);
+    unregister.call_with(registry.clone(), [token.into()]).unwrap();
 }
 
 pub fn wrap<T: 'static>(value: T) -> Object {
