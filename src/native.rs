@@ -74,7 +74,7 @@ pub fn wrap<T: 'static>(value: T) -> Object {
 }
 
 pub fn get<'a, T: 'static>(object: &'a Object) -> Option<&'a T> {
-    if object.get("_valid").into_boolean().unwrap() {
+    if object.get("_valid").into_boolean().unwrap_or(false) {
         let fat_pointer = FatPointer {
             data_pointer: object.get("_data").into_number()? as usize as *mut u8,
             vtable_pointer: object.get("_vtable").into_number()? as usize as *mut u8,
@@ -89,7 +89,7 @@ pub fn get<'a, T: 'static>(object: &'a Object) -> Option<&'a T> {
 }
 
 pub fn take<T: 'static>(object: Object) -> Option<Box<T>> {
-    if object.get("_valid").into_boolean().unwrap() {
+    if object.get("_valid").into_boolean().unwrap_or(false) {
         let fat_pointer = FatPointer {
             data_pointer: object.get("_data").into_number()? as usize as *mut u8,
             vtable_pointer: object.get("_vtable").into_number()? as usize as *mut u8,

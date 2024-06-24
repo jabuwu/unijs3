@@ -1,5 +1,6 @@
 use crate::Value;
 
+// TODO: should probably be represented as the javascript Error type instead?
 pub struct Exception(Value);
 
 impl Exception {

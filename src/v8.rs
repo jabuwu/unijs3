@@ -70,3 +70,23 @@ pub fn pop_scope() {
         global.scope_stack.pop();
     }
 }
+
+pub fn flush() {
+    let Global {
+        owned_isolate,
+        handle_scope,
+        context,
+        context_scope,
+        scope_stack,
+    } = unsafe { global() };
+    assert!(scope_stack.is_empty());
+    *context_scope = None;
+    *context = None;
+    *handle_scope = None;
+    *handle_scope = Some(v8::HandleScope::new(owned_isolate.as_mut().unwrap()));
+    *context = Some(v8::Context::new(handle_scope.as_mut().unwrap()));
+    *context_scope = Some(v8::ContextScope::new(
+        handle_scope.as_mut().unwrap(),
+        *context.as_mut().unwrap(),
+    ));
+}

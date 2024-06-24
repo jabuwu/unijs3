@@ -10,6 +10,11 @@ pub mod json;
 #[cfg(not(target_arch = "wasm32"))]
 mod v8;
 
+pub fn flush() {
+    #[cfg(not(target_arch = "wasm32"))]
+    crate::v8::flush();
+}
+
 pub fn eval(source: impl AsRef<str>) -> Result<Value, Value> {
     #[cfg(not(target_arch = "wasm32"))]
     {

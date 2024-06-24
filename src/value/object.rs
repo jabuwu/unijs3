@@ -1,4 +1,4 @@
-use crate::Value;
+use crate::{eval, Value};
 
 pub trait AsObject {
     fn as_object(&self) -> Object;
@@ -123,6 +123,19 @@ impl Object {
         }
     }
 
+    pub fn instanceof(&self, prototype: impl Into<Value>) -> bool {
+        let prototype = prototype.into();
+        if let Value::Object(my_prototype) = self.prototype() {
+            if my_prototype.as_object().get("constructor") == prototype {
+                true
+            } else {
+                my_prototype.as_object().instanceof(prototype)
+            }
+        } else {
+            false
+        }
+    }
+
     pub fn prototype(&self) -> Value {
         #[cfg(not(target_arch = "wasm32"))]
         {
@@ -195,20 +208,26 @@ impl std::fmt::Debug for Object {
 
 impl std::fmt::Display for Object {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "{{")?;
-        let keys = self.keys();
-        if keys.len() > 0 {
-            write!(f, " ")?;
-            for i in 0..keys.len() {
-                let key = &keys[i];
-                if i != 0 {
-                    write!(f, ", ")?;
+        let error = eval("Error").unwrap();
+        if self.instanceof(error) {
+            let message = self.get("message").into_string().unwrap_or_else(|| String::from("??"));
+            write!(f, "Error: {}", message)
+        } else {
+            write!(f, "{{")?;
+            let keys = self.keys();
+            if keys.len() > 0 {
+                write!(f, " ")?;
+                for i in 0..keys.len() {
+                    let key = &keys[i];
+                    if i != 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{}: {}", key, self.get(key))?;
                 }
-                write!(f, "{}: {}", key, self.get(key))?;
+                write!(f, " ")?;
             }
-            write!(f, " ")?;
+            write!(f, "}}")
         }
-        write!(f, "}}")
     }
 }
 
