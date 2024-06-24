@@ -3,10 +3,6 @@ name = "unijs3"
 version = "0.1.0"
 edition = "2021"
 
-[dependencies]
-tracing = "0.1.40"
-wasm-bindgen-test = "0.3.0"
-
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 v8 = "0.94.0"
 
@@ -21,4 +17,6 @@ web-sys = { version = "0.3.66", features = [
 ] }
 
 [dev-dependencies]
+tracing = "0.1.40"
 unilog.git = "https://github.com/jabuwu/unilog"
+wasm-bindgen-test = "0.3.0"
