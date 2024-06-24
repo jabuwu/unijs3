@@ -149,8 +149,8 @@ impl Object {
         }
         #[cfg(target_arch = "wasm32")]
         {
-            let prototype = js_sys::Object::get_prototype_of(&self.object);
-            Value::from(Object::from(prototype))
+            let prototype = wasm_bindgen::JsValue::from(js_sys::Object::get_prototype_of(&self.object));
+            Value::from(prototype)
         }
     }
 
